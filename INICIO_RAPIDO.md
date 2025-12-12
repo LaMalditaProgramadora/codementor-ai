@@ -46,6 +46,7 @@ docker exec -it codementor-ollama ollama pull llama3.1:8b
 ```bash
 # Crear tablas
 docker exec -it codementor-backend python3 init_db.py
+docker exec -it codementor-backend python3 init_db.py
 ```
 
 Deberías ver: "Database tables created successfully!"

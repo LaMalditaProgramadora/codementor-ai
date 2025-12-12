@@ -9,7 +9,7 @@ export default function SubmitAssignment() {
   const location = useLocation();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     assignment_id: location.state?.assignment?.assignment_id || '',
     section_id: 'SEC001', // Default
@@ -42,12 +42,12 @@ export default function SubmitAssignment() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.assignment_id) {
       toast.error('Selecciona una tarea');
       return;
     }
-    
+
     if (!formData.project_file) {
       toast.error('Debes subir el archivo de código (.zip)');
       return;
@@ -63,25 +63,25 @@ export default function SubmitAssignment() {
       data.append('group_number', formData.group_number);
       data.append('submitted_by', formData.submitted_by);
       data.append('project_file', formData.project_file);
-      
-      if (formData.video_file) {
-        data.append('video_file', formData.video_file);
+
+      // ✅ Solo enviar video_url si existe
+      if (formData.video_url) {
+        data.append('video_url', formData.video_url);
       }
 
       const response = await submissionsAPI.create(data);
-      
+
       toast.success('¡Entrega realizada con éxito!', { id: submitToast });
-      
-      // Preguntar si quiere evaluar inmediatamente
+
       const shouldEvaluate = window.confirm(
-        '¿Deseas evaluar tu entrega con IA ahora? (Puede tomar 2-3 minutos)'
+        '¿Deseas evaluar tu entrega con IA ahora? (Puede tomar 2-5 minutos)'
       );
-      
+
       if (shouldEvaluate) {
-        toast.loading('Evaluando con IA...', { id: submitToast });
+        toast.loading('Evaluando con IA en segundo plano...', { id: submitToast });
         await submissionsAPI.evaluate(response.data.submission_id);
-        toast.success('¡Evaluación completada!', { id: submitToast });
-        navigate(`/student/submission/${response.data.submission_id}`);
+        toast.success('Evaluación iniciada. Recibirás los resultados pronto.', { id: submitToast });
+        navigate('/student');
       } else {
         navigate('/student');
       }
@@ -149,7 +149,7 @@ export default function SubmitAssignment() {
                   required
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Número de Grupo *
@@ -191,28 +191,26 @@ export default function SubmitAssignment() {
             </div>
           </div>
 
-          {/* Upload de video (opcional) */}
-          <div className="card">
+          {/* Video URL */}
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Video de Presentación (Opcional)
+              URL del Video Explicativo (Opcional)
             </label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary-500 transition-colors">
-              <Video className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <label className="cursor-pointer">
-                <span className="text-primary-600 hover:text-primary-700 font-medium">
-                  Seleccionar video
-                </span>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="video/*,.mp4,.avi,.mov"
-                  onChange={(e) => handleFileChange(e, 'video_file')}
-                />
-              </label>
-              <p className="text-sm text-gray-500 mt-2">
-                {formData.video_file ? formData.video_file.name : 'MP4, AVI, MOV - Máx. 200MB'}
+            <input
+              type="url"
+              value={formData.video_url || ''}
+              onChange={(e) => setFormData({ ...formData, video_url: e.target.value })}
+              placeholder="https://www.youtube.com/watch?v=..."
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              YouTube, Google Drive, Vimeo, o cualquier URL de video público
+            </p>
+            {formData.video_url && (
+              <p className="text-sm text-green-600 mt-2">
+                ✓ URL ingresada
               </p>
-            </div>
+            )}
           </div>
 
           {/* Info importante */}

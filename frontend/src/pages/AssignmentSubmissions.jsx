@@ -10,10 +10,28 @@ export default function AssignmentSubmissions() {
   const [assignment, setAssignment] = useState(null);
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   useEffect(() => {
     loadData();
   }, [id]);
+
+  // Auto-refresh cada 5 segundos si hay evaluaciones en proceso
+  useEffect(() => {
+    if (!autoRefresh) return;
+    
+    const interval = setInterval(() => {
+      loadData();
+    }, 30 * 60000); // Cada x minutos
+    
+    return () => clearInterval(interval);
+  }, [autoRefresh, id]);
+
+  // Activar auto-refresh si hay submissions evaluando
+  useEffect(() => {
+    const hasEvaluating = submissions.some(s => s.status === 'evaluating');
+    setAutoRefresh(hasEvaluating);
+  }, [submissions]);
 
   const loadData = async () => {
     try {
@@ -32,14 +50,15 @@ export default function AssignmentSubmissions() {
   };
 
   const handleEvaluate = async (submissionId) => {
-    const confirm = window.confirm('¿Evaluar esta entrega con IA? Toma 1-2 minutos');
+    const confirm = window.confirm('¿Evaluar esta entrega con IA? El proceso tarda 1-5 minutos y se ejecutará en segundo plano.');
     if (!confirm) return;
 
-    const evalToast = toast.loading('Evaluando con IA...');
+    const evalToast = toast.loading('Iniciando evaluación...');
     try {
       await submissionsAPI.evaluate(submissionId);
-      toast.success('¡Evaluación completada!', { id: evalToast });
-      loadData(); // Recargar datos
+      toast.success('Evaluación iniciada. Se actualizará automáticamente.', { id: evalToast });
+      setAutoRefresh(true); // Activar auto-refresh
+      loadData(); // Recargar inmediatamente
     } catch (error) {
       toast.error('Error al evaluar', { id: evalToast });
       console.error(error);
@@ -95,6 +114,16 @@ export default function AssignmentSubmissions() {
           </div>
         </div>
       </header>
+      {autoRefresh && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-3"></div>
+            <span className="text-sm text-blue-800">
+              Evaluación en proceso... Actualizando automáticamente cada 30 minutos
+            </span>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Estadísticas */}
