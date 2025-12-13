@@ -75,7 +75,7 @@ docker exec -it codementor-ollama ollama pull llama3.1:8b
 
 ```bash
 # Verificar que Ollama está corriendo
-curl http://localhost:11434/api/tags
+curl http://ollama:11434/api/tags
 
 # Probar generación de texto
 docker exec -it codementor-ollama ollama run llama3.1:70b "Explica qué es un algoritmo"

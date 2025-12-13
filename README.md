@@ -257,7 +257,7 @@ Una vez que todos los servicios estén corriendo:
 - **MinIO Console**: http://localhost:9001
   - Usuario: `minioadmin`
   - Contraseña: `minioadmin123`
-- **Ollama API**: http://localhost:11434
+- **Ollama API**: http://ollama:11434
 
 ## 📝 Uso del Sistema
 

@@ -8,7 +8,7 @@ class OllamaService:
         # Leer variables de entorno
         self.base_url = os.getenv("OLLAMA_URL", "http://ollama:11434")
         self.model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-        self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "6000"))  # 15 minutos
+        self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "900"))  # 15 minutos
         
         print(f"🔧 OllamaService initialized with URL: {self.base_url}")
         print(f"🔧 Model: {self.model}, Timeout: {self.timeout}s")
@@ -31,25 +31,21 @@ class OllamaService:
             else:
                 prompt = code
             
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            # Crear timeout explícito
+            timeout = httpx.Timeout(self.timeout, connect=10.0)
+            
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 payload = {
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False
                 }
                 
-                # ✅ Headers para bypass de ngrok
-                headers = {
-                    "ngrok-skip-browser-warning": "true",
-                    "User-Agent": "CodeMentor-Backend/1.0"
-                }
-                
                 print(f"🔍 Calling Ollama at {self.base_url} with model: {self.model}")
                 
                 response = await client.post(
                     f"{self.base_url}/api/generate",
-                    json=payload,
-                    headers=headers  # ✅ Agregar headers
+                    json=payload
                 )
                 
                 response.raise_for_status()
@@ -63,8 +59,17 @@ class OllamaService:
                     "success": True
                 }
                 
+        except httpx.TimeoutException as e:
+            print(f"❌ Timeout calling Ollama: {str(e)}")
+            return {
+                "analysis": "",
+                "error": f"Timeout after {self.timeout}s",
+                "success": False
+            }
         except Exception as e:
             print(f"❌ Error calling Ollama: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return {
                 "analysis": "",
                 "error": str(e),

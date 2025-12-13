@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     MINIO_USE_SSL: bool = False
     
     # Ollama
-    OLLAMA_URL: str = "http://localhost:11434"
+    OLLAMA_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "llama3.1:70b"
     OLLAMA_TIMEOUT: int = 6000
     

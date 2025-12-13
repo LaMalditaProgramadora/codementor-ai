@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.db.session import engine, Base
-from app.api.endpoints import submissions, assignments, grades, plagiarism, sections
+from app.api.endpoints import submissions, assignments, grades, plagiarism, sections, feedback
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -30,7 +30,7 @@ app.include_router(assignments.router, prefix="/api/assignments", tags=["Assignm
 app.include_router(grades.router, prefix="/api/grades", tags=["Grades"])
 app.include_router(plagiarism.router, prefix="/api/plagiarism", tags=["Plagiarism"])
 app.include_router(sections.router, prefix="/api/sections", tags=["Sections"])
-
+app.include_router(feedback.router, prefix="/api/feedback", tags=["Feedback"]) 
 
 @app.get("/")
 def root():

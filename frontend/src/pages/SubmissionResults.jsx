@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, FileCode, Video } from 'lucide-react';
+import { ArrowLeft, CheckCircle, FileCode, Video, Download, FileText } from 'lucide-react';
 import { submissionsAPI, gradesAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
-// Helper para convertir strings a números de forma segura
 const safeParseFloat = (value, defaultValue = 0) => {
   if (value === null || value === undefined) return defaultValue;
   const parsed = parseFloat(value);
@@ -32,7 +31,20 @@ export default function SubmissionResults() {
       setSubmission(submissionRes.data);
       
       if (gradesRes.data && gradesRes.data.length > 0) {
-        setGrade(gradesRes.data[0]);
+        const gradeData = gradesRes.data[0];
+        
+        try {
+          const feedbackRes = await fetch(`http://localhost:8000/api/feedback?grade_id=${gradeData.grade_id}`);
+          const feedbackData = await feedbackRes.json();
+          
+          if (feedbackData && feedbackData.length > 0) {
+            gradeData.feedback = feedbackData[0];
+          }
+        } catch (error) {
+          console.error('Error loading feedback:', error);
+        }
+        
+        setGrade(gradeData);
       }
     } catch (error) {
       toast.error('Error al cargar resultados');
@@ -42,18 +54,27 @@ export default function SubmissionResults() {
     }
   };
 
-  const getScoreColor = (score) => {
-    const percentage = (score / 5) * 100; // Escala 0-5
-    if (percentage >= 80) return 'text-green-600';
-    if (percentage >= 60) return 'text-yellow-600';
-    return 'text-red-600';
+  const handleDownloadSubmission = () => {
+    if (submission?.project_path) {
+      const minioUrl = `http://localhost:9000/${submission.project_path}`;
+      window.open(minioUrl, '_blank');
+    } else {
+      toast.error('No hay archivo disponible para descargar');
+    }
   };
 
   const getScoreBg = (score) => {
-    const percentage = (score / 5) * 100; // Escala 0-5
-    if (percentage >= 80) return 'bg-green-100';
-    if (percentage >= 60) return 'bg-yellow-100';
-    return 'bg-red-100';
+    const percentage = (score / 5) * 100;
+    if (percentage >= 80) return 'bg-green-500';
+    if (percentage >= 60) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
+  const getScoreBadge = (score) => {
+    const percentage = (score / 5) * 100;
+    if (percentage >= 80) return 'bg-green-100 text-green-800';
+    if (percentage >= 60) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-red-100 text-red-800';
   };
 
   if (loading) {
@@ -77,30 +98,19 @@ export default function SubmissionResults() {
     );
   }
 
-  // Calcular scores de forma segura
   const comprehensionScore = safeParseFloat(grade.ai_comprehension_score);
   const designScore = safeParseFloat(grade.ai_design_score);
   const implementationScore = safeParseFloat(grade.ai_implementation_score);
   const functionalityScore = safeParseFloat(grade.ai_functionality_score);
-
-  // Calcular total (preferir ai_total_score si existe)
-  const totalScore = grade.ai_total_score 
-    ? safeParseFloat(grade.ai_total_score)
-    : comprehensionScore + designScore + implementationScore + functionalityScore;
-
-  // Nota: Los scores vienen en escala 0-5 cada uno, total 20
+  const totalScore = grade.ai_total_score ? safeParseFloat(grade.ai_total_score) : comprehensionScore + designScore + implementationScore + functionalityScore;
   const maxScore = 20;
   const scorePercentage = (totalScore / maxScore) * 100;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <button
-            onClick={() => navigate('/student')}
-            className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
-          >
+          <button onClick={() => navigate('/student')} className="flex items-center text-gray-600 hover:text-gray-900 mb-4">
             <ArrowLeft className="w-5 h-5 mr-2" />
             Volver al Dashboard
           </button>
@@ -109,178 +119,153 @@ export default function SubmissionResults() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Puntaje Total */}
+        <div className="card mb-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">📎 Archivos Entregados</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {submission.project_path && (
+              <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center space-x-3">
+                  <FileCode className="w-6 h-6 text-blue-600" />
+                  <div>
+                    <p className="font-medium text-gray-900">Código Fuente</p>
+                    <p className="text-sm text-gray-600">{submission.project_path.split('/').pop()}</p>
+                  </div>
+                </div>
+                <button onClick={handleDownloadSubmission} className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  <Download className="w-4 h-4" />
+                  <span>Descargar</span>
+                </button>
+              </div>
+            )}
+            {submission.video_url && (
+              <div className="flex items-center justify-between p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="flex items-center space-x-3">
+                  <Video className="w-6 h-6 text-purple-600" />
+                  <div>
+                    <p className="font-medium text-gray-900">Video Explicativo</p>
+                    <p className="text-sm text-gray-600">Enlace externo</p>
+                  </div>
+                </div>
+                <a href={submission.video_url} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                  <FileText className="w-4 h-4" />
+                  <span>Ver Video</span>
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="card mb-8 text-center">
           <div className="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-blue-100 text-blue-800 mb-4">
             <CheckCircle className="w-4 h-4 mr-2" />
             Evaluado con IA: Llama 3.1 8B
           </div>
-          
           <div className="mb-2">
-            <span 
-              className="text-6xl font-bold" 
-              style={{ 
-                color: scorePercentage >= 80 ? '#10b981' : scorePercentage >= 60 ? '#f59e0b' : '#ef4444' 
-              }}
-            >
+            <span className="text-6xl font-bold" style={{ color: scorePercentage >= 80 ? '#10b981' : scorePercentage >= 60 ? '#f59e0b' : '#ef4444' }}>
               {totalScore.toFixed(1)}
             </span>
             <span className="text-2xl text-gray-500">/{maxScore}</span>
           </div>
-          <p className="text-gray-600">Puntaje Total</p>
-          <p className="text-sm text-gray-500 mt-1">
-            {scorePercentage.toFixed(0)}% - Escala vigesimal: {(totalScore * 20 / maxScore).toFixed(1)}/20
-          </p>
+          <p className="text-gray-600 font-medium">Puntaje Total</p>
+          <p className="text-sm text-gray-500 mt-1">{scorePercentage.toFixed(0)}% - Escala vigesimal: {totalScore.toFixed(1)}/20</p>
         </div>
 
-        {/* Criterios de Evaluación */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          {/* Comprensión */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Comprensión del Problema</h3>
-              <span className={`text-2xl font-bold ${getScoreColor(comprehensionScore)}`}>
-                {comprehensionScore.toFixed(1)}/5
-              </span>
+        <div className="card mb-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-6">📊 Detalle de Evaluación</h3>
+          <div className="space-y-6">
+            <div className="border-l-4 border-blue-500 pl-6 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">📘</span>
+                  <h4 className="text-lg font-semibold text-gray-900">Comprensión del Problema</h4>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreBadge(comprehensionScore)}`}>
+                  {comprehensionScore.toFixed(1)}/5 puntos
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-3">
+                <div className={`h-3 rounded-full ${getScoreBg(comprehensionScore)}`} style={{ width: `${(comprehensionScore / 5) * 100}%` }}></div>
+              </div>
+              {grade.feedback?.comprehension_comments && (
+                <div className="mt-3 p-4 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{grade.feedback.comprehension_comments}</p>
+                </div>
+              )}
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <div
-                className={`h-2 rounded-full ${getScoreBg(comprehensionScore)}`}
-                style={{ width: `${(comprehensionScore / 5) * 100}%` }}
-              ></div>
-            </div>
-            <p className="text-sm text-gray-600">Entendimiento de requisitos</p>
-          </div>
 
-          {/* Diseño */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Diseño de la Solución</h3>
-              <span className={`text-2xl font-bold ${getScoreColor(designScore)}`}>
-                {designScore.toFixed(1)}/5
-              </span>
+            <div className="border-l-4 border-purple-500 pl-6 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">🎨</span>
+                  <h4 className="text-lg font-semibold text-gray-900">Diseño de la Solución</h4>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreBadge(designScore)}`}>
+                  {designScore.toFixed(1)}/5 puntos
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-3">
+                <div className={`h-3 rounded-full ${getScoreBg(designScore)}`} style={{ width: `${(designScore / 5) * 100}%` }}></div>
+              </div>
+              {grade.feedback?.design_comments && (
+                <div className="mt-3 p-4 bg-purple-50 rounded-lg">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{grade.feedback.design_comments}</p>
+                </div>
+              )}
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <div
-                className={`h-2 rounded-full ${getScoreBg(designScore)}`}
-                style={{ width: `${(designScore / 5) * 100}%` }}
-              ></div>
-            </div>
-            <p className="text-sm text-gray-600">Arquitectura y patrones de diseño</p>
-          </div>
 
-          {/* Implementación */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Implementación</h3>
-              <span className={`text-2xl font-bold ${getScoreColor(implementationScore)}`}>
-                {implementationScore.toFixed(1)}/5
-              </span>
+            <div className="border-l-4 border-green-500 pl-6 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">💻</span>
+                  <h4 className="text-lg font-semibold text-gray-900">Implementación</h4>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreBadge(implementationScore)}`}>
+                  {implementationScore.toFixed(1)}/5 puntos
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-3">
+                <div className={`h-3 rounded-full ${getScoreBg(implementationScore)}`} style={{ width: `${(implementationScore / 5) * 100}%` }}></div>
+              </div>
+              {grade.feedback?.implementation_comments && (
+                <div className="mt-3 p-4 bg-green-50 rounded-lg">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{grade.feedback.implementation_comments}</p>
+                </div>
+              )}
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <div
-                className={`h-2 rounded-full ${getScoreBg(implementationScore)}`}
-                style={{ width: `${(implementationScore / 5) * 100}%` }}
-              ></div>
-            </div>
-            <p className="text-sm text-gray-600">Calidad de código y buenas prácticas</p>
-          </div>
 
-          {/* Funcionalidad */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Funcionalidad</h3>
-              <span className={`text-2xl font-bold ${getScoreColor(functionalityScore)}`}>
-                {functionalityScore.toFixed(1)}/5
-              </span>
+            <div className="border-l-4 border-yellow-500 pl-6 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">⚡</span>
+                  <h4 className="text-lg font-semibold text-gray-900">Funcionalidad</h4>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getScoreBadge(functionalityScore)}`}>
+                  {functionalityScore.toFixed(1)}/5 puntos
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-3">
+                <div className={`h-3 rounded-full ${getScoreBg(functionalityScore)}`} style={{ width: `${(functionalityScore / 5) * 100}%` }}></div>
+              </div>
+              {grade.feedback?.functionality_comments && (
+                <div className="mt-3 p-4 bg-yellow-50 rounded-lg">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{grade.feedback.functionality_comments}</p>
+                </div>
+              )}
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-              <div
-                className={`h-2 rounded-full ${getScoreBg(functionalityScore)}`}
-                style={{ width: `${(functionalityScore / 5) * 100}%` }}
-              ></div>
-            </div>
-            <p className="text-sm text-gray-600">Requisitos funcionan correctamente</p>
           </div>
         </div>
 
-        {/* Feedback */}
-        {grade.feedback && (
-          <div className="card mb-8">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">Retroalimentación Detallada</h3>
-            
-            <div className="space-y-4">
-              {grade.feedback.comprehension_comments && (
-                <div className="border-l-4 border-blue-500 pl-4 py-2">
-                  <h4 className="font-semibold text-gray-900 mb-1 flex items-center">
-                    <span className="mr-2">📘</span>
-                    Comprensión del Problema ({comprehensionScore.toFixed(1)}/5)
-                  </h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{grade.feedback.comprehension_comments}</p>
-                </div>
-              )}
-              
-              {grade.feedback.design_comments && (
-                <div className="border-l-4 border-purple-500 pl-4 py-2">
-                  <h4 className="font-semibold text-gray-900 mb-1 flex items-center">
-                    <span className="mr-2">🎨</span>
-                    Diseño de la Solución ({designScore.toFixed(1)}/5)
-                  </h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{grade.feedback.design_comments}</p>
-                </div>
-              )}
-              
-              {grade.feedback.implementation_comments && (
-                <div className="border-l-4 border-green-500 pl-4 py-2">
-                  <h4 className="font-semibold text-gray-900 mb-1 flex items-center">
-                    <span className="mr-2">💻</span>
-                    Implementación ({implementationScore.toFixed(1)}/5)
-                  </h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{grade.feedback.implementation_comments}</p>
-                </div>
-              )}
-              
-              {grade.feedback.functionality_comments && (
-                <div className="border-l-4 border-yellow-500 pl-4 py-2">
-                  <h4 className="font-semibold text-gray-900 mb-1 flex items-center">
-                    <span className="mr-2">⚡</span>
-                    Funcionalidad ({functionalityScore.toFixed(1)}/5)
-                  </h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{grade.feedback.functionality_comments}</p>
-                </div>
-              )}
-              
-              {grade.feedback.general_comments && (
-                <div className="border-l-4 border-gray-500 pl-4 py-2">
-                  <h4 className="font-semibold text-gray-900 mb-1 flex items-center">
-                    <span className="mr-2">📝</span>
-                    Comentarios Generales
-                  </h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{grade.feedback.general_comments}</p>
-                </div>
-              )}
+        {grade.feedback?.general_comments && (
+          <div className="card">
+            <div className="flex items-center space-x-2 mb-4">
+              <span className="text-2xl">📝</span>
+              <h3 className="text-xl font-bold text-gray-900">Comentarios Generales</h3>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{grade.feedback.general_comments}</p>
             </div>
           </div>
         )}
-
-        {/* Archivos */}
-        <div className="card">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Archivos Entregados</h3>
-          <div className="flex space-x-4">
-            {submission.project_path && (
-              <div className="flex items-center space-x-2 text-gray-700">
-                <FileCode className="w-5 h-5 text-blue-600" />
-                <span>Código fuente</span>
-              </div>
-            )}
-            {submission.video_url && (
-              <div className="flex items-center space-x-2 text-gray-700">
-                <Video className="w-5 h-5 text-purple-600" />
-                <span>Video explicativo</span>
-              </div>
-            )}
-          </div>
-        </div>
       </main>
     </div>
   );
