@@ -1,23 +1,17 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Upload, FileText, Video, ArrowLeft, Loader2 } from 'lucide-react';
-import { submissionsAPI, assignmentsAPI } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Upload, FileCode, Video } from 'lucide-react';
+import { assignmentsAPI, submissionsAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
 export default function SubmitAssignment() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [assignments, setAssignments] = useState([]);
+  const [selectedAssignment, setSelectedAssignment] = useState('');
+  const [codeFile, setCodeFile] = useState(null);
+  const [videoFile, setVideoFile] = useState(null);
+  const [groupNumber, setGroupNumber] = useState(1);
   const [loading, setLoading] = useState(false);
-
-  const [formData, setFormData] = useState({
-    assignment_id: location.state?.assignment?.assignment_id || '',
-    section_id: 'SEC001', // Default
-    group_number: 1,
-    submitted_by: 'EST001', // Default
-    project_file: null,
-    video_file: null,
-  });
 
   useEffect(() => {
     loadAssignments();
@@ -25,69 +19,102 @@ export default function SubmitAssignment() {
 
   const loadAssignments = async () => {
     try {
-      const res = await assignmentsAPI.getAll();
-      setAssignments(res.data);
+      const response = await assignmentsAPI.getAll();
+      setAssignments(response.data);
     } catch (error) {
       toast.error('Error al cargar tareas');
+      console.error(error);
     }
   };
 
-  const handleFileChange = (e, type) => {
+  const handleCodeFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      setFormData({ ...formData, [type]: file });
-      toast.success(`Archivo ${type === 'project_file' ? 'de código' : 'de video'} seleccionado`);
+      if (!file.name.endsWith('.zip')) {
+        toast.error('Solo se permiten archivos ZIP');
+        return;
+      }
+      setCodeFile(file);
+      toast.success(`Archivo seleccionado: ${file.name}`);
+    }
+  };
+
+  const handleVideoFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const validTypes = ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime'];
+      if (!validTypes.includes(file.type)) {
+        toast.error('Solo se permiten archivos de video (MP4, WebM, AVI, MOV)');
+        return;
+      }
+      
+      const maxSize = 100 * 1024 * 1024; // 100MB
+      if (file.size > maxSize) {
+        toast.error('El video no debe superar 100MB');
+        return;
+      }
+      
+      setVideoFile(file);
+      toast.success(`Video seleccionado: ${file.name}`);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.assignment_id) {
+    if (!selectedAssignment) {
       toast.error('Selecciona una tarea');
       return;
     }
 
-    if (!formData.project_file) {
-      toast.error('Debes subir el archivo de código (.zip)');
+    if (!codeFile) {
+      toast.error('Debes subir el código fuente (ZIP)');
       return;
     }
 
     setLoading(true);
-    const submitToast = toast.loading('Subiendo entrega...');
 
     try {
-      const data = new FormData();
-      data.append('assignment_id', formData.assignment_id);
-      data.append('section_id', formData.section_id);
-      data.append('group_number', formData.group_number);
-      data.append('submitted_by', formData.submitted_by);
-      data.append('project_file', formData.project_file);
-
-      // ✅ Solo enviar video_url si existe
-      if (formData.video_url) {
-        data.append('video_url', formData.video_url);
+      const formData = new FormData();
+      formData.append('assignment_id', selectedAssignment);
+      formData.append('section_id', 'SEC001');
+      formData.append('group_number', groupNumber.toString());
+      formData.append('submitted_by', 'EST001');
+      formData.append('project_file', codeFile);
+      
+      if (videoFile) {
+        formData.append('video_file', videoFile);
       }
 
-      const response = await submissionsAPI.create(data);
-
-      toast.success('¡Entrega realizada con éxito!', { id: submitToast });
-
-      const shouldEvaluate = window.confirm(
-        '¿Deseas evaluar tu entrega con IA ahora? (Puede tomar 2-5 minutos)'
-      );
-
-      if (shouldEvaluate) {
-        toast.loading('Evaluando con IA en segundo plano...', { id: submitToast });
-        await submissionsAPI.evaluate(response.data.submission_id);
-        toast.success('Evaluación iniciada. Recibirás los resultados pronto.', { id: submitToast });
-        navigate('/student');
-      } else {
-        navigate('/student');
+      console.log('📤 Enviando submission:');
+      for (let [key, value] of formData.entries()) {
+        console.log(`  ${key}:`, value instanceof File ? `${value.name} (${value.size} bytes)` : value);
       }
+
+      const response = await submissionsAPI.create(formData);
+
+      toast.success('¡Entrega realizada con éxito!');
+      
+      setTimeout(() => {
+        navigate(`/student/submission/${response.data.submission_id}`);
+      }, 1500);
+
     } catch (error) {
-      toast.error('Error al subir entrega', { id: submitToast });
-      console.error(error);
+      console.error('❌ Error completo:', error);
+      console.error('Response:', error.response);
+      
+      if (error.response?.data?.detail) {
+        if (Array.isArray(error.response.data.detail)) {
+          error.response.data.detail.forEach(err => {
+            console.error(`Validation error: ${err.loc.join('.')}: ${err.msg}`);
+            toast.error(`${err.loc.join('.')}: ${err.msg}`);
+          });
+        } else {
+          toast.error(error.response.data.detail);
+        }
+      } else {
+        toast.error('Error al realizar la entrega');
+      }
     } finally {
       setLoading(false);
     }
@@ -95,9 +122,8 @@ export default function SubmitAssignment() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <button
             onClick={() => navigate('/student')}
             className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
@@ -105,150 +131,136 @@ export default function SubmitAssignment() {
             <ArrowLeft className="w-5 h-5 mr-2" />
             Volver al Dashboard
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">Nueva Entrega</h1>
-          <p className="text-sm text-gray-600">Sube tu proyecto y video de presentación</p>
+          <h1 className="text-2xl font-bold text-gray-900">Entregar Tarea</h1>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Seleccionar tarea */}
-          <div className="card">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <form onSubmit={handleSubmit} className="card">
+          {/* Seleccionar Tarea */}
+          <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Seleccionar Tarea *
             </label>
             <select
+              value={selectedAssignment}
+              onChange={(e) => setSelectedAssignment(e.target.value)}
               className="input-field"
-              value={formData.assignment_id}
-              onChange={(e) => setFormData({ ...formData, assignment_id: e.target.value })}
               required
             >
-              <option value="">Selecciona una tarea...</option>
+              <option value="">-- Selecciona una tarea --</option>
               {assignments.map((assignment) => (
                 <option key={assignment.assignment_id} value={assignment.assignment_id}>
-                  {assignment.title} - Entrega: {new Date(assignment.due_date).toLocaleDateString()}
+                  {assignment.title}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Información del grupo */}
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Información del Grupo</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Código de Estudiante *
-                </label>
-                <input
-                  type="text"
-                  className="input-field"
-                  value={formData.submitted_by}
-                  onChange={(e) => setFormData({ ...formData, submitted_by: e.target.value })}
-                  placeholder="EST001"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Número de Grupo *
-                </label>
-                <input
-                  type="number"
-                  className="input-field"
-                  value={formData.group_number}
-                  onChange={(e) => setFormData({ ...formData, group_number: parseInt(e.target.value) })}
-                  min="1"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Upload de código */}
-          <div className="card">
+          {/* Número de Grupo */}
+          <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Archivo de Código (ZIP) *
-            </label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary-500 transition-colors">
-              <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <label className="cursor-pointer">
-                <span className="text-primary-600 hover:text-primary-700 font-medium">
-                  Seleccionar archivo ZIP
-                </span>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".zip"
-                  onChange={(e) => handleFileChange(e, 'project_file')}
-                  required
-                />
-              </label>
-              <p className="text-sm text-gray-500 mt-2">
-                {formData.project_file ? formData.project_file.name : 'Máx. 50MB'}
-              </p>
-            </div>
-          </div>
-
-          {/* Video URL */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              URL del Video Explicativo (Opcional)
+              Número de Grupo
             </label>
             <input
-              type="url"
-              value={formData.video_url || ''}
-              onChange={(e) => setFormData({ ...formData, video_url: e.target.value })}
-              placeholder="https://www.youtube.com/watch?v=..."
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              type="number"
+              min="1"
+              max="10"
+              value={groupNumber}
+              onChange={(e) => setGroupNumber(parseInt(e.target.value) || 1)}
+              className="input-field"
             />
             <p className="text-xs text-gray-500 mt-1">
-              YouTube, Google Drive, Vimeo, o cualquier URL de video público
+              Si trabajas solo, deja el valor en 1
             </p>
-            {formData.video_url && (
-              <p className="text-sm text-green-600 mt-2">
-                ✓ URL ingresada
-              </p>
-            )}
           </div>
 
-          {/* Info importante */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="font-semibold text-blue-900 mb-2">ℹ️ Información Importante</h4>
-            <ul className="text-sm text-blue-800 space-y-1">
-              <li>• El código será analizado automáticamente con IA (Llama 3.1 8B)</li>
-              <li>• La evaluación incluye: Comprensión, Diseño, Implementación y Funcionalidad</li>
-              <li>• Si subes video, también será transcrito y analizado</li>
-              <li>• El proceso de evaluación toma aproximadamente 2-3 minutos</li>
-              <li>• Recibirás feedback detallado por cada criterio</li>
-            </ul>
+          {/* Código Fuente */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Código Fuente (ZIP) *
+            </label>
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-primary-400 transition-colors">
+              <div className="space-y-1 text-center">
+                <FileCode className="mx-auto h-12 w-12 text-gray-400" />
+                <div className="flex text-sm text-gray-600">
+                  <label className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500">
+                    <span>Seleccionar archivo ZIP</span>
+                    <input
+                      type="file"
+                      accept=".zip"
+                      onChange={handleCodeFileChange}
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+                {codeFile && (
+                  <p className="text-sm text-green-600 font-medium">
+                    ✓ {codeFile.name} ({(codeFile.size / 1024).toFixed(2)} KB)
+                  </p>
+                )}
+                <p className="text-xs text-gray-500">
+                  Archivo ZIP con tu proyecto completo
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Video Explicativo */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Video Explicativo (Opcional)
+            </label>
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-purple-400 transition-colors">
+              <div className="space-y-1 text-center">
+                <Video className="mx-auto h-12 w-12 text-gray-400" />
+                <div className="flex text-sm text-gray-600">
+                  <label className="relative cursor-pointer bg-white rounded-md font-medium text-purple-600 hover:text-purple-500">
+                    <span>Seleccionar video</span>
+                    <input
+                      type="file"
+                      accept="video/mp4,video/webm,video/avi,video/quicktime"
+                      onChange={handleVideoFileChange}
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+                {videoFile && (
+                  <p className="text-sm text-green-600 font-medium">
+                    ✓ {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(2)} MB)
+                  </p>
+                )}
+                <p className="text-xs text-gray-500">
+                  MP4, WebM, AVI o MOV (máximo 100MB)
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Botones */}
-          <div className="flex space-x-4">
+          <div className="flex items-center justify-end space-x-4 pt-4">
             <button
               type="button"
               onClick={() => navigate('/student')}
-              className="btn-secondary flex-1"
+              className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
               disabled={loading}
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="btn-primary flex-1 flex items-center justify-center"
+              className="flex items-center px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading}
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Subiendo...
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Enviando...
                 </>
               ) : (
                 <>
-                  <Upload className="w-5 h-5 mr-2" />
-                  Subir Entrega
+                  <Upload className="w-4 h-4 mr-2" />
+                  Entregar Tarea
                 </>
               )}
             </button>

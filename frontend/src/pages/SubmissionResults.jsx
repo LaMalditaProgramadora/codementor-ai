@@ -138,18 +138,27 @@ export default function SubmissionResults() {
               </div>
             )}
             {submission.video_url && (
-              <div className="flex items-center justify-between p-4 bg-purple-50 rounded-lg border border-purple-200">
-                <div className="flex items-center space-x-3">
-                  <Video className="w-6 h-6 text-purple-600" />
-                  <div>
-                    <p className="font-medium text-gray-900">Video Explicativo</p>
-                    <p className="text-sm text-gray-600">Enlace externo</p>
-                  </div>
+              <div className="card mb-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">🎥 Video Explicativo</h3>
+                <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                  <video
+                    controls
+                    className="w-full h-full"
+                    src={`http://localhost:8000/api/submissions/${submission.submission_id}/video`}
+                  >
+                    Tu navegador no soporta la reproducción de video.
+                  </video>
                 </div>
-                <a href={submission.video_url} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
-                  <FileText className="w-4 h-4" />
-                  <span>Ver Video</span>
-                </a>
+                <div className="mt-4 flex justify-end">
+                  <a
+                    href={`http://localhost:8000/api/submissions/${submission.submission_id}/video`}
+                    download
+                    className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Descargar Video</span>
+                  </a>
+                </div>
               </div>
             )}
           </div>

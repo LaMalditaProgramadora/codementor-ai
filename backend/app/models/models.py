@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float, BigInteger, DECIMAL, JSON
+from sqlalchemy import Column, Numeric, Integer, String, Text, DateTime, ForeignKey, Boolean, Float, BigInteger, DECIMAL, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
@@ -84,6 +84,12 @@ class Submission(Base):
     participation_report_path = Column(String(500))
     status = Column(String(50), default="pending")
     created_at = Column(DateTime, server_default=func.now())
+    # Campos para análisis de video
+    video_transcription = Column(Text)
+    video_duration = Column(Numeric(10, 2))
+    speakers_detected = Column(Integer)
+    video_analysis_score = Column(Numeric(5, 2))
+    video_relevance_check = Column(Text)
     
     # Relationships
     assignment = relationship("Assignment", back_populates="submissions")

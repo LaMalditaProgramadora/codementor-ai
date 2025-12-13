@@ -319,13 +319,177 @@ public class Program {
             traceback.print_exc()
             code = "// Error extracting code from submission"
         
-        # 3. Transcribir video si existe (opcional para futuro)
+        # 3. Transcribir y evaluar video si existe
         video_transcript = None
+        video_analysis = None
+        video_penalty = 0  # Penalización si no hay video o no es relevante
+        
         if submission.video_url:
             print(f"🎥 Video URL found: {submission.video_url}")
-            # TODO: Implementar transcripción con Whisper
-            # video_transcript = await whisper_service.transcribe_video_url(submission.video_url)
+            
+            video_path = None
+            
+            try:
+                # Solo soportar videos subidos a MinIO
+                if 'youtube.com' in submission.video_url or 'youtu.be' in submission.video_url:
+                    print(f"⚠️ YouTube videos are not currently supported")
+                    print(f"⚠️ Skipping video transcription")
+                    
+                else:
+                    # Procesar video de MinIO
+                    print(f"📦 Processing video from MinIO...")
+                    parts = submission.video_url.split('/', 1)
+                    
+                    if len(parts) != 2:
+                        print(f"⚠️ Invalid MinIO URL format: {submission.video_url}")
+                        raise Exception("Invalid video URL format")
+                    
+                    bucket, object_name = parts
+                    
+                    print(f"📥 Downloading from MinIO: {bucket}/{object_name}")
+                    video_data = minio_service.client.get_object(bucket, object_name)
+                    video_bytes = video_data.read()
+                    
+                    # Guardar temporalmente
+                    video_ext = object_name.split('.')[-1] if '.' in object_name else 'mp4'
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{video_ext}') as tmp_file:
+                        tmp_file.write(video_bytes)
+                        video_path = tmp_file.name
+                    
+                    print(f"✅ Video downloaded: {video_path} ({len(video_bytes) / 1024 / 1024:.2f} MB)")
+                    
+                    # Transcribir con Whisper
+                    print(f"🎤 Transcribing video with Whisper...")
+                    transcription_result = whisper_service.transcribe_video(video_path)
+                    video_transcript = transcription_result['text']
+                    
+                    print(f"✅ Video transcribed: {len(video_transcript)} characters")
+                    print(f"📝 Transcript preview: {video_transcript[:200]}...")
+                    
+                    # Guardar transcripción en BD
+                    submission.video_transcription = video_transcript
+                    submission.video_duration = transcription_result.get('duration', 0)
+                    
+                    # Verificar relevancia del video con Ollama
+                    if len(video_transcript) > 50:
+                        print(f"🧠 Checking video relevance with Ollama...")
+                        
+                        relevance_prompt = f"""Eres un profesor evaluando si un video explicativo corresponde a una tarea de programación.
+
+REQUISITOS DE LA TAREA:
+{requirements[:800]}
+
+TRANSCRIPCIÓN DEL VIDEO:
+{video_transcript[:1500]}
+
+Analiza si el video:
+1. Explica el código relacionado a esta tarea
+2. Menciona conceptos técnicos relevantes a los requisitos
+3. Demuestra comprensión del problema planteado
+
+Responde SOLO en JSON:
+{{
+  "is_relevant": true,
+  "confidence": 0.85,
+  "mentions_requirements": true,
+  "demonstrates_understanding": true,
+  "reason": "El estudiante explica claramente la implementación de List<T> y eventos, que son requisitos clave."
+}}
+
+Donde:
+- is_relevant: true si el video corresponde a la tarea, false si habla de otro tema
+- confidence: 0.0 a 1.0 (qué tan seguro estás)
+- mentions_requirements: true si menciona conceptos de los requisitos
+- demonstrates_understanding: true si demuestra entender el problema
+- reason: explicación breve de tu evaluación
+
+RESPONDE SOLO CON EL JSON:"""
+                        
+                        relevance_result = await ollama_service.analyze_code(relevance_prompt, "")
+                        
+                        if relevance_result.get("success"):
+                            try:
+                                relevance_text = relevance_result.get("analysis", "").strip()
+                                
+                                # Extraer JSON
+                                if "{" in relevance_text and "}" in relevance_text:
+                                    start = relevance_text.find("{")
+                                    end = relevance_text.rfind("}") + 1
+                                    json_text = relevance_text[start:end]
+                                    relevance_data = json.loads(json_text)
+                                    
+                                    is_relevant = relevance_data.get('is_relevant', True)
+                                    confidence = relevance_data.get('confidence', 0.5)
+                                    reason = relevance_data.get('reason', '')
+                                    
+                                    # Guardar en BD
+                                    submission.video_relevance_check = json.dumps(relevance_data, ensure_ascii=False)
+                                    
+                                    print(f"📊 Video relevance: {'✅ Relevant' if is_relevant else '❌ Not relevant'} (confidence: {confidence:.2f})")
+                                    print(f"   Reason: {reason}")
+                                    
+                                    # Aplicar penalización si no es relevante
+                                    if not is_relevant or confidence < 0.6:
+                                        video_penalty = 2  # -2 puntos totales
+                                        print(f"⚠️ VIDEO PENALTY APPLIED: -2 points (video not relevant to assignment)")
+                                        print(f"   Will deduct: -1 from Comprehension, -1 from Functionality")
+                                    else:
+                                        print(f"✅ Video is relevant, no penalty applied")
+                                
+                            except json.JSONDecodeError as e:
+                                print(f"⚠️ Could not parse relevance check: {e}")
+                        else:
+                            print(f"⚠️ Relevance check failed, assuming video is acceptable")
+                    
+                    # Analizar participación (si es video de grupo)
+                    if submission.group_number and submission.group_number > 1:
+                        print(f"👥 Analyzing participation for group {submission.group_number}...")
+                        participation_data = whisper_service.analyze_participation_from_video(video_path)
+                        
+                        submission.speakers_detected = participation_data['num_speakers_detected']
+                        
+                        video_analysis = {
+                            'transcription': video_transcript,
+                            'duration': transcription_result.get('duration', 0),
+                            'participation': participation_data
+                        }
+                        
+                        print(f"✅ Detected {participation_data['num_speakers_detected']} speakers")
+                        for speaker_info in participation_data['speaker_times']:
+                            print(f"   Speaker {speaker_info['speaker_id']}: {speaker_info['time']}s ({speaker_info['percentage']:.1f}%)")
+                    
+                    # Limpiar archivo temporal
+                    if video_path and os.path.exists(video_path):
+                        try:
+                            os.unlink(video_path)
+                            print(f"🗑️ Cleaned up temporary file")
+                        except Exception as cleanup_error:
+                            print(f"⚠️ Could not delete temp file: {cleanup_error}")
+                
+            except Exception as e:
+                print(f"⚠️ Video processing failed: {str(e)}")
+                print(f"⚠️ Continuing code evaluation without video analysis")
+                import traceback
+                traceback.print_exc()
+                
+                # Limpiar archivo temporal si existe
+                if video_path and os.path.exists(video_path):
+                    try:
+                        os.unlink(video_path)
+                    except:
+                        pass
         
+        else:
+            # No hay video - aplicar penalización
+            print(f"⚠️ No video provided")
+            print(f"⚠️ VIDEO PENALTY APPLIED: -2 points (missing video explanation)")
+            print(f"   Will deduct: -1 from Comprehension, -1 from Functionality")
+            video_penalty = 2
+            submission.video_relevance_check = json.dumps({
+                "is_relevant": False,
+                "reason": "No video provided"
+            }, ensure_ascii=False)
+
         # 4. Evaluar con Ollama
         print(f"🤖 Calling Ollama for evaluation...")
         try:
@@ -337,6 +501,50 @@ public class Program {
             traceback.print_exc()
             # Usar scores por defecto
             scores = self._fallback_scores()
+
+        # 4.5. Escalar scores y aplicar penalización de video
+        def scale_to_5(score):
+            score = float(score)
+            if score > 5:
+                return round((score * 5 / 25), 2)
+            else:
+                return round(score, 2)
+        
+        comprehension = scale_to_5(scores.get("comprehension_score", 3))
+        design = scale_to_5(scores.get("design_score", 3))
+        implementation = scale_to_5(scores.get("implementation_score", 3))
+        functionality = scale_to_5(scores.get("functionality_score", 3))
+        
+        # Aplicar penalización de video
+        if video_penalty > 0:
+            print(f"⚠️ Applying video penalty: -{video_penalty} points")
+            
+            # -1 punto en comprensión
+            comprehension_penalty = min(1.0, comprehension)  # No bajar de 0
+            comprehension = max(0, comprehension - comprehension_penalty)
+            print(f"   Comprehension: {comprehension + comprehension_penalty:.2f} → {comprehension:.2f} (-{comprehension_penalty:.2f})")
+            
+            # -1 punto en funcionalidad
+            functionality_penalty = min(1.0, functionality)  # No bajar de 0
+            functionality = max(0, functionality - functionality_penalty)
+            print(f"   Functionality: {functionality + functionality_penalty:.2f} → {functionality:.2f} (-{functionality_penalty:.2f})")
+            
+            # Actualizar feedback
+            penalty_msg = "\n\n⚠️ PENALIZACIÓN POR VIDEO: Se descontó 1 punto en Comprensión y 1 punto en Funcionalidad debido a: "
+            
+            if submission.video_url:
+                penalty_msg += "el video no corresponde al contexto de la tarea asignada."
+            else:
+                penalty_msg += "no se proporcionó video explicativo."
+            
+            scores['comprehension_feedback'] = scores.get('comprehension_feedback', '') + penalty_msg
+            scores['functionality_feedback'] = scores.get('functionality_feedback', '') + penalty_msg
+        
+        print(f"📊 Final scores (after penalties):")
+        print(f"   Comprehension: {comprehension}/5")
+        print(f"   Design: {design}/5")
+        print(f"   Implementation: {implementation}/5")
+        print(f"   Functionality: {functionality}/5")
         
         # 5. Escalar scores si es necesario (de 0-25 a 0-5)
         def scale_to_5(score):
