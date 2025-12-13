@@ -1,7 +1,18 @@
+"""
+OllamaService con integración RAG.
+Usa evaluaciones históricas para mejorar la consistencia de las calificaciones.
+
+Ubicación: backend/app/services/ollama_service.py
+"""
+
 import httpx
 from typing import Dict, Optional
 import json
 import os
+
+# Importar RAG service
+from app.services.rag_service import rag_service
+
 
 class OllamaService:
     def __init__(self):
@@ -10,8 +21,18 @@ class OllamaService:
         self.model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
         self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "900"))  # 15 minutos
         
+        # RAG settings
+        self.use_rag = os.getenv("USE_RAG", "true").lower() == "true"
+        self.rag_examples = int(os.getenv("RAG_EXAMPLES", "3"))
+        
         print(f"🔧 OllamaService initialized with URL: {self.base_url}")
         print(f"🔧 Model: {self.model}, Timeout: {self.timeout}s")
+        print(f"🔧 RAG enabled: {self.use_rag}, Examples: {self.rag_examples}")
+        
+        # Mostrar stats del RAG
+        if self.use_rag:
+            stats = rag_service.get_stats()
+            print(f"🔧 RAG Dataset: {stats.get('total', 0)} evaluaciones históricas")
     
     async def check_health(self) -> bool:
         """Check if Ollama is running"""
@@ -77,9 +98,32 @@ class OllamaService:
             }
     
     async def evaluate_code(self, code: str, requirements: str, rubric: Dict) -> Dict:
-        """Evaluate code against requirements and rubric"""
+        """Evaluate code against requirements and rubric - CON RAG"""
         
-        # Prompt DETALLADO con rúbrica específica
+        # ═══════════════════════════════════════════════════════
+        # NUEVO: Buscar ejemplos similares con RAG
+        # ═══════════════════════════════════════════════════════
+        ejemplos_texto = ""
+        ejemplos = []
+        if self.use_rag:
+            print(f"🔍 RAG: Buscando {self.rag_examples} proyectos similares...")
+            ejemplos = await rag_service.buscar_similares(code, self.rag_examples)
+            
+            if ejemplos:
+                ejemplos_texto = rag_service.formatear_ejemplos_para_prompt(ejemplos)
+                print(f"✅ RAG: {len(ejemplos)} ejemplos incluidos en el prompt")
+            else:
+                print(f"⚠️ RAG: No se encontraron proyectos similares")
+        
+        # ═══════════════════════════════════════════════════════
+        # Prompt MEJORADO con ejemplos históricos
+        # ═══════════════════════════════════════════════════════
+        
+        # Instrucción adicional si hay ejemplos RAG
+        instruccion_rag = ""
+        if ejemplos_texto:
+            instruccion_rag = "- EVALÚA CON EL MISMO CRITERIO de los ejemplos anteriores"
+        
         prompt = f"""Eres un profesor de Ingeniería Informática evaluando un proyecto de C#/.NET. 
 Analiza el código y proporciona una evaluación detallada según la siguiente rúbrica (máximo 20 puntos):
 
@@ -107,11 +151,11 @@ RÚBRICA DE EVALUACIÓN (Total: 20 puntos)
    - Validaciones de datos implementadas
    - Flujo de navegación coherente
 
-═══════════════════════════════════════════════════════
-REQUISITOS:
+{ejemplos_texto}═══════════════════════════════════════════════════════
+REQUISITOS DE LA TAREA ACTUAL:
 {requirements[:800]}
 
-CÓDIGO:
+CÓDIGO DEL ESTUDIANTE A EVALUAR:
 {code[:1500]}
 
 ═══════════════════════════════════════════════════════
@@ -132,6 +176,7 @@ Responde ÚNICAMENTE en JSON con esta estructura exacta:
 IMPORTANTE: 
 - Cada score debe ser 0-5 (NO 0-25)
 - Feedback específico y constructivo
+{instruccion_rag}
 - Si nota total >= 16: menciona "¡Buen trabajo!"
 - Si nota total == 20: menciona "¡Excelente trabajo!"
 - Si nota total < 16: feedback detallado
@@ -205,6 +250,10 @@ RESPONDE SOLO CON EL JSON, SIN TEXTO ADICIONAL:"""
                     else:
                         scores[field] = "Feedback no disponible"
             
+            # Agregar metadata de RAG
+            scores["_rag_used"] = self.use_rag and len(ejemplos) > 0
+            scores["_rag_examples"] = len(ejemplos) if self.use_rag else 0
+            
             return scores
             
         except json.JSONDecodeError as e:
@@ -227,8 +276,11 @@ RESPONDE SOLO CON EL JSON, SIN TEXTO ADICIONAL:"""
             "comprehension_feedback": "El código ha sido recibido correctamente. Se requiere revisión manual para una evaluación detallada debido a limitaciones técnicas en la evaluación automática.",
             "design_feedback": "Se observa una estructura básica en el código. Se recomienda revisar la arquitectura y separación de responsabilidades siguiendo principios de POO.",
             "implementation_feedback": "La implementación está presente. Se sugiere revisar las convenciones de código de C# y .NET Framework para mejorar la legibilidad.",
-            "functionality_feedback": "Se requiere verificación manual para confirmar el cumplimiento completo de los requisitos funcionales."
+            "functionality_feedback": "Se requiere verificación manual para confirmar el cumplimiento completo de los requisitos funcionales.",
+            "_rag_used": False,
+            "_rag_examples": 0
         }
+
 
 # Singleton instance
 ollama_service = OllamaService()
